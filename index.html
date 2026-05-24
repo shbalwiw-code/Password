@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>تطبيق سيارات الواقع المعزز 4D</title>
+    
+    <!-- مكتبات الـ 3D والواقع المعزز الأساسية -->
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+    
+    <!-- مكتبة aframe-extras لقراءة ملفات FBX والأنميشن -->
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
+    
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        #landing-page {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #1e3c72, #2a5298); color: white;
+            z-index: 1000; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; text-align: center;
+        }
+        
+        h1 { margin-bottom: 20px; font-size: 28px; padding: 0 15px; }
+        
+        .btn {
+            padding: 15px 30px; margin: 10px; font-size: 18px; font-weight: bold;
+            border: none; border-radius: 50px; cursor: pointer; transition: 0.3s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); width: 80%; max-width: 300px;
+        }
+        .btn:active { transform: scale(0.95); }
+        #btn-camera { background-color: #27ae60; color: white; }
+        #btn-marker { background-color: #e67e22; color: white; }
+        
+        #back-btn {
+            position: absolute; top: 20px; left: 20px; z-index: 1001;
+            display: none; padding: 12px 25px; background: #c0392b; color: white;
+            font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        #marker-container {
+            margin-top: 20px; padding: 20px; background: white;
+            border-radius: 15px; display: none; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+        }
+        #marker-container img { width: 200px; height: 200px; display: block; }
+    </style>
+
+    <script>
+        // كود برمجي مخصص لتركيب الألوان مباشرة من مجلد جيت هاب
+        AFRAME.registerComponent('apply-car-texture', {
+            schema: {
+                textureUrl: {type: 'string'}
+            },
+            init: function () {
+                let el = this.el;
+                let data = this.data;
+                
+                let textureLoader = new THREE.TextureLoader();
+                textureLoader.load(data.textureUrl, function (texture) {
+                    el.addEventListener('model-loaded', function () {
+                        let model = el.getObject3D('mesh');
+                        model.traverse(function (node) {
+                            if (node.isMesh) {
+                                node.material.map = texture;
+                                node.material.needsUpdate = true;
+                            }
+                        });
+                    });
+                });
+            }
+        });
+    </script>
+</head>
+<body>
+
+    <!-- صفحة البداية -->
+    <div id="landing-page">
+        <h1>الواقع المعزز (AR) - معرض السيارات</h1>
+        <p style="margin-bottom: 20px; font-size: 16px; padding: 0 15px;">وجه كاميرا هاتفك نحو العلامة (Hiro) لرؤية السيارة وسماع محركها!</p>
+        
+        <button id="btn-camera" class="btn" onclick="openCamera()">📷 فتح الكاميرا</button>
+        <button id="btn-marker" class="btn" onclick="showMarker()">🔲 عرض العلامة (Hiro)</button>
+        
+        <div id="marker-container">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/48/Hiro_marker_ARjs.png" alt="علامة Hiro">
+        </div>
+    </div>
+
+    <!-- زر الرجوع -->
+    <button id="back-btn" onclick="goBack()">🔙 رجوع</button>
+
+    <!-- مشهد الواقع المعزز -->
+    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;" vr-mode-ui="enabled: false">
+        
+        <!-- العلامة (Hiro Marker) -->
+        <a-marker preset="hiro" id="car-marker">
+            
+            <!-- مجسم السيارة (تم ضبط الحجم المبدئي ليكون مناسباً لملفات الـ fbx) -->
+            <a-entity 
+                id="car-model" 
+                position="0 0 0" 
+                scale="0.01 0.01 0.01" 
+                rotation="0 0 0">
+            </a-entity>
+            
+        </a-marker>
+
+        <a-entity camera></a-entity>
+    </a-scene>
+
+    <script>
+        const landingPage = document.getElementById('landing-page');
+        const backBtn = document.getElementById('back-btn');
+        const markerContainer = document.getElementById('marker-container');
+        const carModel = document.getElementById('car-model');
+        const carMarker = document.getElementById('car-marker');
+
+        // جلب صوت محرك السيارة من الإنترنت
+        const engineSound = new Audio('https://cdn.jsdelivr.net/gh/kaistmm/ssl_kccv@main/car_engine.mp3');
+        engineSound.loop = true;
+
+        // منطق التناوب المباشر بين الملفات المرفوعة على الـ Root
+        window.onload = function() {
+            let lastCar = localStorage.getItem('lastCar') || 'car2';
+            let currentCar = (lastCar === 'car1') ? 'car2' : 'car1';
+            localStorage.setItem('lastCar', currentCar);
+
+            let modelPath = '';
+            let texturePath = '';
+
+            // تم تعديل المسارات لتكون مباشرة في المجلد الرئيسي لمشروعك
+            if (currentCar === 'car1') {
+                modelPath = 'car_1.fbx';
+                texturePath = 'Car Texture 1.png';
+            } else {
+                modelPath = 'car_2.fbx';
+                texturePath = 'Car Texture 2.png';
+            }
+
+            // تعيين مسار السيارة وصورة ألوانها ديناميكياً
+            carModel.setAttribute('fbx-model', `src: ${modelPath};`);
+            carModel.setAttribute('apply-car-texture', `textureUrl: ${texturePath};`);
+        };
+
+        // تشغيل وإيقاف الصوت تلقائياً مع الكاميرا
+        carMarker.addEventListener('markerFound', function() {
+            engineSound.play().catch(err => console.log("بانتظار الإذن بالتشغيل:", err));
+        });
+
+        carMarker.addEventListener('markerLost', function() {
+            engineSound.pause();
+        });
+
+        function openCamera() {
+            landingPage.style.display = 'none';
+            backBtn.style.display = 'block';
+            
+            engineSound.play().then(() => {
+                engineSound.pause();
+                engineSound.currentTime = 0;
+            }).catch(err => console.log(err));
+
+            setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 200);
+        }
+
+        function goBack() {
+            landingPage.style.display = 'flex';
+            backBtn.style.display = 'none';
+            markerContainer.style.display = 'none';
+            engineSound.pause();
+        }
+
+        function showMarker() {
+            if (markerContainer.style.display === 'block') {
+                markerContainer.style.display = 'none';
+            } else {
+                markerContainer.style.display = 'block';
+            }
+        }
+
+        window.addEventListener("orientationchange", function() {
+            setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 500);
+        });
+    </script>
+</body>
+</html>
